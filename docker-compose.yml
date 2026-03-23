@@ -1,0 +1,53 @@
+# 1. Definimos la versión del lenguaje que estamos usando
+version: '3.8'
+
+# 2. Aquí declaramos todas las "máquinas" que vamos a encender
+services:
+  # --- MÁQUINA 1: LA BASE DE DATOS ---
+  PostgreSQL:
+    image: postgres:15 # Le dice a Docker: "Ve a internet y descarga la versión 15 de PostgreSQL"
+    container_name: db_TC1 # El nombre que tendrá el contenedor
+    environment:
+      # Aquí configuramos las credenciales por defecto de la base de datos
+      POSTGRES_USER: UserTC1
+      POSTGRES_PASSWORD: BaseDeDatosTC1
+      POSTGRES_DB: TC_1 # El nombre de la base de datos que se va a crear automáticamente
+    ports:
+      - "5432:5432" # Abre el puerto para que te puedas conectar a la base de datos desde tu compu
+    volumes:
+      # Esto es súper importante: guarda los datos en tu disco duro para que 
+      # si apagas Docker, no se borren los restaurantes que guardaste.
+      - postgres_data:/var/lib/postgresql/data
+
+  # --- MÁQUINA 2: EL SISTEMA DE AUTENTICACIÓN ---
+  # Le ponemos de nombre "keycloak"
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0 # Descarga Keycloak de internet
+    container_name: auth_keycloak
+    environment:
+      # Usuario y contraseña para entrar a administrar Keycloak
+      KEYCLOAK_ADMIN: UserTC1
+      KEYCLOAK_ADMIN_PASSWORD: KeycloakTC1
+    command: start-dev # Enciende Keycloak en modo desarrollo (más fácil para ustedes)
+    ports:
+      - "8080:8080" # Abre Keycloak en el puerto 8080 de tu navegador
+    depends_on:
+      - PostgreSQL # Le dice a Docker: "No enciendas Keycloak hasta que la base de datos (PostgreSQL) esté lista"
+
+  # --- MÁQUINA 3: LA API DE TU COMPAÑERO ---
+  #api:
+  #  build: ./api # Le dice a Docker: "Ve a la carpeta /api y construye lo que mi compañero programó"
+  #  container_name: api_TC1
+  #  ports:
+  #    - "8000:8000" # Abre la API en el puerto 8000
+  #  volumes:
+  #    # Esto hace que si tu compañero guarda un cambio en su código Python, 
+  #    # se actualice en vivo sin tener que reiniciar Docker.
+  #    - ./api:/app
+  #  depends_on:
+  #    - PostgreSQL
+  #    - keycloak
+
+# 3. Aquí declaramos el "disco duro" virtual que usamos arriba para la base de datos
+volumes:
+  postgres_data:
