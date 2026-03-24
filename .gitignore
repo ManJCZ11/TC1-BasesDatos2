@@ -1,0 +1,20 @@
+# 1. Caché de Python (Archivos temporales que la compu crea sola)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 2. Entornos virtuales (Si en algún momento crean uno, pesa muchísimo)
+venv/
+env/
+
+# 3. Archivos con contraseñas o secretos (¡Súper importante por seguridad!)
+.env
+
+# 4. Configuraciones personales de tu editor de código (VS Code, etc.)
+.vscode/
+.idea/
+
+# 5. Archivos basura de Windows o Mac
+.DS_Store
+Thumbs.db

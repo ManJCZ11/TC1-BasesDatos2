@@ -34,19 +34,23 @@ services:
     depends_on:
       - PostgreSQL # Le dice a Docker: "No enciendas Keycloak hasta que la base de datos (PostgreSQL) esté lista"
 
-  # --- MÁQUINA 3: LA API DE TU COMPAÑERO ---
-  #api:
-  #  build: ./api # Le dice a Docker: "Ve a la carpeta /api y construye lo que mi compañero programó"
-  #  container_name: api_TC1
-  #  ports:
-  #    - "8000:8000" # Abre la API en el puerto 8000
-  #  volumes:
-  #    # Esto hace que si tu compañero guarda un cambio en su código Python, 
-  #    # se actualice en vivo sin tener que reiniciar Docker.
-  #    - ./api:/app
-  #  depends_on:
-  #    - PostgreSQL
-  #    - keycloak
+  # --- MÁQUINA 3: API ---
+  api:
+    build: ./api # Le dice a Docker: "Ve a la carpeta /api y construye lo que se programó"
+    container_name: api_TC1
+    ports:
+      - "8000:8000" # Abre la API en el puerto 8000
+    volumes:
+      # Esto hace que si se guarda un cambio en el código Python, 
+      # se actualice en vivo sin tener que reiniciar Docker.
+      - ./api:/app
+    environment:
+      # Le pasamos a Python la dirección exacta, el usuario y la contraseña 
+      # para que sepa cómo conectarse a la base de datos de PostgreSQL.
+      - DATABASE_URL=postgresql://UserTC1:BaseDeDatosTC1@PostgreSQL:5432/TC_1
+    depends_on:
+      - PostgreSQL
+      - keycloak
 
 # 3. Aquí declaramos el "disco duro" virtual que usamos arriba para la base de datos
 volumes:
