@@ -3,12 +3,12 @@ from datetime import datetime
 from typing import Optional
 from decimal import Decimal
 
-# ==========================================
-# 1. USUARIO
-# ==========================================
-# Lo que pedimos cuando alguien se registra
+
+#Usuario
+
+# Lo que se pide cuando alguien se registra
 class UsuarioCrear(BaseModel):
-    keycloakID: str
+    keycloakid: str
     nombre: str
     email: str
     rol: str
@@ -21,21 +21,21 @@ class UsuarioActualizar(BaseModel):
 # Lo que la API responde (incluye el ID que generó la base de datos)
 class UsuarioRespuesta(BaseModel):
     id: int
-    keycloakID: str
+    keycloakid: str
     nombre: str
     email: str
     rol: str
 
     class Config:
-        from_attributes = True  # Esto le dice a Pydantic que traduzca desde la base de datos
+        from_attributes = True  # Le dice a Pydantic que traduzca desde la base de datos
 
-# ==========================================
-# 2. RESTAURANTE
-# ==========================================
+
+#Restaurante
+
 class RestauranteCrear(BaseModel):
     nombre: str
     direccion: str
-    administradorID: int
+    administradorid: int
 
 class RestauranteActualizar(BaseModel):                                 # No sale en la tabla
     nombre: Optional[str] = None
@@ -45,33 +45,33 @@ class RestauranteRespuesta(BaseModel):
     id: int
     nombre: str
     direccion: str
-    administradorID: int
+    administradorid: int
 
     class Config:
         from_attributes = True
 
-# ==========================================
-# 3. MESA
-# ==========================================
+
+#Mesa
+
 class MesaCrear(BaseModel):                                             # No sale en la tabla
-    restauranteID: int
+    restauranteid: int
     numero_mesa: int
     capacidad_personas: int
 
 class MesaRespuesta(BaseModel):                                         # No sale en la tabla
     id: int
-    restauranteID: int
+    restauranteid: int
     numero_mesa: int
     capacidad_personas: int
 
     class Config:
         from_attributes = True
 
-# ==========================================
-# 4. MENÚ
-# ==========================================
+
+#Menú
+
 class MenuCrear(BaseModel):
-    restauranteID: int
+    restauranteid: int
     nombre: str
 
 class MenuActualizar(BaseModel):
@@ -79,24 +79,24 @@ class MenuActualizar(BaseModel):
 
 class MenuRespuesta(BaseModel):
     id: int
-    restauranteID: int
+    restauranteid: int
     nombre: str
 
     class Config:
         from_attributes = True
 
-# ==========================================
-# 5. PLATO
-# ==========================================
+
+#Plato
+
 class PlatoCrear(BaseModel):                                               # No sale en la tabla
-    menuID: int
+    menuid: int
     nombre: str
     descripcion: Optional[str] = None
     precio: Decimal
 
 class PlatoRespuesta(BaseModel):                                        # No sale en la tabla
     id: int
-    menuID: int
+    menuid: int
     nombre: str
     descripcion: Optional[str]
     precio: Decimal
@@ -104,31 +104,29 @@ class PlatoRespuesta(BaseModel):                                        # No sal
     class Config:
         from_attributes = True
 
-# ==========================================
-# 6. RESERVA
-# ==========================================
+
+#Reserva
 class ReservaCrear(BaseModel):
-    clienteID: int
-    mesaID: int
+    clienteid: int
+    mesaid: int
     fecha_hora: datetime
-    # No pedimos el "estado" porque por defecto siempre entra como "Pendiente"
+    # No se pide el estado porque por defecto siempre entra como Pendiente
 
 class ReservaActualizarEstado(BaseModel):                               # No sale en la tabla
     estado: str # Para cambiar de "Pendiente" a "Confirmada" o "Cancelada"
 
 class ReservaRespuesta(BaseModel):
     id: int
-    clienteID: int
-    mesaID: int
+    clienteid: int
+    mesaid: int
     fecha_hora: datetime
     estado: str
 
     class Config:
         from_attributes = True
 
-# ==========================================
-# 7. PEDIDO Y DETALLE
-# ==========================================
+
+#Pedido y detalle
 class PedidoCrear(BaseModel):
     clienteid: int
     restauranteid: int
@@ -136,8 +134,8 @@ class PedidoCrear(BaseModel):
 
 class PedidoRespuesta(BaseModel):
     id: int
-    clienteID: int
-    restauranteID: int
+    clienteid: int
+    restauranteid: int
     fecha: datetime
     recoger: bool
     estado: str
