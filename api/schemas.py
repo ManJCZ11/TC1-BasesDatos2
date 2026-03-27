@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
 from decimal import Decimal
@@ -6,20 +6,25 @@ from decimal import Decimal
 
 #Usuario
 
-# Lo que se pide cuando alguien se registra
-class UsuarioCrear(BaseModel):
-    keycloakid: str
+class UsuarioLogin(BaseModel):          # Keycloak
+    username: str  
+    password: str
+
+
+class UsuarioCrear(BaseModel):          # Lo que se pide cuando alguien se registra
     nombre: str
-    email: str
+    email: EmailStr
     rol: str
+    password: str
+
 
 class UsuarioActualizar(BaseModel):
     nombre: Optional[str] = None
     email: Optional[str] = None
     rol: Optional[str] = None
 
-# Lo que la API responde (incluye el ID que generó la base de datos)
-class UsuarioRespuesta(BaseModel):
+
+class UsuarioRespuesta(BaseModel):      # Lo que la API responde (incluye el ID que generó la base de datos)
     id: int
     keycloakid: str
     nombre: str
@@ -37,9 +42,11 @@ class RestauranteCrear(BaseModel):
     direccion: str
     administradorid: int
 
+
 class RestauranteActualizar(BaseModel):                                 # No sale en la tabla
     nombre: Optional[str] = None
     direccion: Optional[str] = None
+
 
 class RestauranteRespuesta(BaseModel):
     id: int
@@ -58,6 +65,7 @@ class MesaCrear(BaseModel):                                             # No sal
     numero_mesa: int
     capacidad_personas: int
 
+
 class MesaRespuesta(BaseModel):                                         # No sale en la tabla
     id: int
     restauranteid: int
@@ -74,8 +82,10 @@ class MenuCrear(BaseModel):
     restauranteid: int
     nombre: str
 
+
 class MenuActualizar(BaseModel):
     nombre: Optional[str] = None
+
 
 class MenuRespuesta(BaseModel):
     id: int
@@ -93,6 +103,7 @@ class PlatoCrear(BaseModel):                                               # No 
     nombre: str
     descripcion: Optional[str] = None
     precio: Decimal
+
 
 class PlatoRespuesta(BaseModel):                                        # No sale en la tabla
     id: int
@@ -112,8 +123,10 @@ class ReservaCrear(BaseModel):
     fecha_hora: datetime
     # No se pide el estado porque por defecto siempre entra como Pendiente
 
+
 class ReservaActualizarEstado(BaseModel):                               # No sale en la tabla
     estado: str # Para cambiar de "Pendiente" a "Confirmada" o "Cancelada"
+
 
 class ReservaRespuesta(BaseModel):
     id: int
@@ -131,6 +144,7 @@ class PedidoCrear(BaseModel):
     clienteid: int
     restauranteid: int
     recoger: bool = False
+
 
 class PedidoRespuesta(BaseModel):
     id: int
