@@ -7,6 +7,7 @@ import requests
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import os
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -408,7 +409,7 @@ def registrar_restaurante(restaurante: schemas.RestauranteCrear, request: Reques
         admin = db.query(models.Usuario).filter(models.Usuario.keycloakid == keycloak_id).first()
 
         if not admin:
-            raise HTTPException(status_code=404, detail="El usuario autenticado no existe en la base de datos local")
+            raise HTTPException(status_code=404, detail="El usuario autenticado no existe en la base de datos")
 
         # # Crear el restaurante en la base de datos con el ID del administrador que lo creó
         nuevo_restaurante = models.Restaurante(
