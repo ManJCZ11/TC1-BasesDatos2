@@ -40,7 +40,6 @@ class UsuarioRespuesta(BaseModel):      # Lo que la API responde (incluye el ID 
 class RestauranteCrear(BaseModel):
     nombre: str
     direccion: str
-    administradorid: int
 
 
 class RestauranteActualizar(BaseModel):                                 # No sale en la tabla

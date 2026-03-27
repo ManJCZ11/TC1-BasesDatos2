@@ -6,7 +6,7 @@ from database import engine, get_db
 import requests
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import os
-from dotenv import load_dotenv # <--- 1. Importar esto
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -232,7 +232,7 @@ def login_usuario(credenciales: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(status_code=503, detail="No se pudo conectar con el servidor de identidad (Keycloak)")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
-        
+
 
 
 #____________________________________________________________________________________________
@@ -255,6 +255,9 @@ def obtener_usuario_logueado(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos")
         return usuario
         
+    except HTTPException:
+        # Errores manejados explícitamente
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno al buscar el usuario: {str(e)}")
 
@@ -273,6 +276,9 @@ def obtener_usuario(id: int, request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
         return usuario
         
+    except HTTPException:
+        # Errores manejados explícitamente
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno al buscar el usuario: {str(e)}")
 
@@ -322,6 +328,9 @@ def actualizar_usuario(id: int, datos_nuevos: schemas.UsuarioActualizar, request
         db.refresh(usuario_db)
         return usuario_db
 
+    except HTTPException:
+        # Errores manejados explícitamente
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar: {str(e)}")
@@ -368,6 +377,9 @@ def eliminar_usuario(id: int, request: Request, db: Session = Depends(get_db)):
 
         return {"mensaje": "Usuario eliminado exitosamente de ambos sistemas"}
 
+    except HTTPException:
+        # Errores manejados explícitamente
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno al eliminar: {str(e)}")
@@ -377,26 +389,47 @@ def eliminar_usuario(id: int, request: Request, db: Session = Depends(get_db)):
 #____________________________________________________________________________________________
 # Restaurante
 
-#POST /restaurants: Registra un nuevo restaurante
+# POST /restaurants: Registrar un nuevo restaurante (Solo Admin)
 
-@app.post("/restaurants", response_model=schemas.RestauranteRespuesta)
-def registrar_restaurante(restaurante: schemas.RestauranteCrear, db: Session = Depends(get_db)):  
+@app.post("/restaurants", response_model=schemas.RestauranteRespuesta, dependencies=[Depends(oauth2_scheme)])
+def registrar_restaurante(restaurante: schemas.RestauranteCrear, request: Request, db: Session = Depends(get_db)):
+    try:
+        # Se saca el ID de Keycloak que el middleware guardó
+        keycloak_id = request.state.user_data["sub"]                                                                          
+        
+        # Se busca el usuario en la base de datos
+        admin = db.query(models.Usuario).filter(models.Usuario.keycloakid == keycloak_id).first()
 
-    nuevo_restaurante = models.Restaurante(                     # Preparar los datos
-        nombre=restaurante.nombre,
-        direccion=restaurante.direccion,
-        administradorid=restaurante.administradorid
-    )
-    db.add(nuevo_restaurante)                                   # Guardar en la base de datos
-    db.commit()
-    db.refresh(nuevo_restaurante)                               # Refrescar para obtener el ID
-    return nuevo_restaurante                                    
+        if not admin:
+            raise HTTPException(status_code=404, detail="El usuario autenticado no existe en la base de datos local")
+
+        # # Crear el restaurante en la base de datos con el ID del administrador que lo creó
+        nuevo_restaurante = models.Restaurante(
+            nombre=restaurante.nombre,
+            direccion=restaurante.direccion,
+            administradorid=admin.id
+        )
+
+        # 4. GUARDAR EN LA BASE DE DATOS
+        db.add(nuevo_restaurante)
+        db.commit()
+        db.refresh(nuevo_restaurante)
+
+        return nuevo_restaurante
+
+    except HTTPException:
+        # Errores manejados explícitamente
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear el restaurante: {str(e)}")                               
 
 
 
 #GET /restaurants: Obtiene la lista de restaurantes
 
 @app.get("/restaurants", response_model=list[schemas.RestauranteRespuesta])
-def obtener_restaurantes(db: Session = Depends(get_db)):        # Obtener todos los restaurantes de la base de datos
-    restaurantes_db = db.query(models.Restaurante).all()           # Devolver la lista de restaurantes como respuesta
+def obtener_restaurantes(db: Session = Depends(get_db)):               # Obtener todos los restaurantes de la base de datos
+    restaurantes_db = db.query(models.Restaurante).all()               # Devolver la lista de restaurantes como respuesta
     return restaurantes_db
+
