@@ -1,39 +1,35 @@
-# Definir la versión del lenguaje que se está usando 
 version: '3.8'
 
-# Aquí se declaran todas las máquinas que se van a encender
 services:
-  # Máquina 1: Base de datos PostgreSQL
+  # Base de datos PostgreSQL
   PostgreSQL:
     image: postgres:15 
-    container_name: db_TC1 # El nombre que tendrá el contenedor
+    container_name: db_TC1
     environment:
-      # Se configura las credenciales por defecto de la base de datos
-      POSTGRES_USER: UserTC1
-      POSTGRES_PASSWORD: BaseDeDatosTC1
-      POSTGRES_DB: TC_1 # El nombre de la base de datos que se va a crear automáticamente
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432" # Abre el puerto para conectarse a la base de datos desde la compu
+      - "5432:5432"
     volumes:
       # Guarda los datos en el disco duro para que 
       # si se apaga Docker, no se borren los restaurantes que guardados.
       - postgres_data:/var/lib/postgresql/data
 
-  # Máquina 2: Keycloak
+  # Keycloak
   keycloak:
     image: quay.io/keycloak/keycloak:24.0
     container_name: auth_keycloak
     environment:
-      # Usuario y contraseña para entrar a administrar Keycloak
-      KEYCLOAK_ADMIN: UserTC1
-      KEYCLOAK_ADMIN_PASSWORD: KeycloakTC1
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     command: start-dev # Encender Keycloak en modo desarrollo
     ports:
-      - "8080:8080" # Abrir Keycloak en el puerto 8080 del navegador
+      - "8080:8080"
     depends_on:
-      - PostgreSQL # Keycloak se enciende hasta que la base de datos esté lista"
+      - PostgreSQL
 
-  # Máquina 3: API
+  # API
   api:
     build: ./api # Docker se va a la carpeta api y construye lo que se programó
     container_name: api_TC1
@@ -43,10 +39,8 @@ services:
       # Esto hace que si se guarda un cambio en el código Python, 
       # se actualice en vivo sin tener que reiniciar Docker.
       - ./api:/app
-    environment:
-      # Pasar a Python la dirección exacta, el usuario y la contraseña 
-      # para que sepa cómo conectarse a la base de datos de PostgreSQL.
-      - DATABASE_URL=postgresql://UserTC1:BaseDeDatosTC1@PostgreSQL:5432/TC_1
+    env_file:
+      - .env
     depends_on:
       - PostgreSQL
       - keycloak

@@ -20,7 +20,7 @@ class UsuarioCrear(BaseModel):          # Lo que se pide cuando alguien se regis
 
 class UsuarioActualizar(BaseModel):
     nombre: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     rol: Optional[str] = None
 
 

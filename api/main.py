@@ -5,6 +5,10 @@ import models, schemas
 from database import engine, get_db
 import requests
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import os
+from dotenv import load_dotenv # <--- 1. Importar esto
+
+load_dotenv()
 
  # Esto asegura que las tablas se creen físicamente en PostgreSQL
 models.Base.metadata.create_all(bind=engine)
@@ -27,7 +31,7 @@ async def middleware_seguridad(request: Request, call_next):
     path = request.url.path
     method = request.method
     
-    # Rutas que no ocupan llave para entrar
+    # Rutas públicas
     rutas_publicas = ["/", "/docs", "/openapi.json", "/auth/login", "/auth/register"]
     get_publico = method == "GET" and (path.startswith("/restaurants") or path.startswith("/menus"))
     
@@ -44,10 +48,8 @@ async def middleware_seguridad(request: Request, call_next):
     token = auth_header.split(" ")[1] 
 
     try:
-        IP_KEYCLOAK = "http://keycloak:8080"
-        REALM_NAME = "BD2_TC1"
         # Se le pregunta a Keycloak por la información del usuario usando el token para validar si es correcto y no expiró
-        url_userinfo = f"{IP_KEYCLOAK}/realms/{REALM_NAME}/protocol/openid-connect/userinfo"
+        url_userinfo = f"{os.getenv('IP_KEYCLOAK')}/realms/{os.getenv('REALM_NAME')}/protocol/openid-connect/userinfo"
         respuesta = requests.get(url_userinfo, headers={"Authorization": f"Bearer {token}"})
 
         if respuesta.status_code != 200:
@@ -57,9 +59,13 @@ async def middleware_seguridad(request: Request, call_next):
         datos_usuario = respuesta.json()
         roles = datos_usuario.get("realm_access", {}).get("roles", [])
 
-        # Solo Clientes pueden reservar y ordenar, y ver sus datos
+        # Si alguien quiere ver su propio perfil, se deja pasar
+        if path == "/users/me" and method == "GET":
+            request.state.user_data = datos_usuario
+            return await call_next(request)
+
+        # Solo Clientes pueden reservar y ordenar
         rutas_cliente = path.startswith("/reservations") or path.startswith("/orders") 
-                        or (method == "GET" and path == "/users/me")
         if rutas_cliente:
             if "Cliente" not in roles:
                 return JSONResponse(status_code=403, content={"detail": "Acceso denegado: Se requiere rol de Cliente"})
@@ -68,9 +74,11 @@ async def middleware_seguridad(request: Request, call_next):
         # y agregar restaurantes
         rutas_admin = (
             (method == "POST" and (path.startswith("/restaurants") or path.startswith("/menus"))) or
-            (method in ["PUT", "DELETE"] and (path.startswith("/users") or path.startswith("/menus")))
+            (method in ["PUT", "DELETE"] and (path.startswith("/users") or path.startswith("/menus"))) or
+            (method == "GET" and path == "/users")
         )
-        if rutas_admin and path == "/users/me":
+
+        if rutas_admin:
             if "Administrador" not in roles:
                 return JSONResponse(status_code=403, content={"detail": "Acceso denegado: Se requiere rol de Administrador"})
 
@@ -92,39 +100,64 @@ async def middleware_seguridad(request: Request, call_next):
 
 @app.post("/auth/register", response_model=schemas.UsuarioRespuesta)
 def registrar_usuario(usuario: schemas.UsuarioCrear, db: Session = Depends(get_db)):
-    IP_KEYCLOAK = "http://keycloak:8080"
-    REALM_NAME = "BD2_TC1"
-    ADMIN_USER = "UserTC1"          # Usuario para entrar a localhost:8080
-    ADMIN_PASS = "KeycloakTC1"      # Contraseña para entrar a localhost:8080
 
+    # Validación de que el correo no esté registrado en la base de datos
+    usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == usuario.email).first()
+    if usuario_existente:
+        raise HTTPException(status_code=400, detail="El correo ya está registrado en el sistema")
     try:
-        res_token = requests.post(f"{IP_KEYCLOAK}/realms/master/protocol/openid-connect/token", 
+        # Se ingresa a Keycloak poniendo el username y password
+        respuesta_token = requests.post(f"{os.getenv('IP_KEYCLOAK')}/realms/master/protocol/openid-connect/token", 
         data={
-            "client_id": "admin-cli", 
-            "username": ADMIN_USER, 
-            "password": ADMIN_PASS, 
+            "client_id": "admin-cli", # Cliente predefinido en Keycloak que tiene permisos de administración
+            "username": os.getenv('KEYCLOAK_ADMIN'), 
+            "password": os.getenv('KEYCLOAK_ADMIN_PASSWORD'), 
             "grant_type": "password"
         })
-        token_admin = res_token.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token_admin}", "Content-Type": "application/json"}
 
-        url_create_user = f"{IP_KEYCLOAK}/admin/realms/{REALM_NAME}/users"      # Crear el usuario en Keycloak
+        if respuesta_token.status_code != 200:
+            raise HTTPException(status_code=500, detail="No se pudo obtener acceso administrativo de Keycloak")
+
+        # Si la autenticación es exitosa, se obtiene el token de acceso para usarlo en las siguientes solicitudes a Keycloak
+        token_admin = respuesta_token.json()["access_token"] # 
+        # Se prepara el header con el token para autorizar las solicitudes de administración a Keycloak
+        headers_admin = {"Authorization": f"Bearer {token_admin}", "Content-Type": "application/json"}
+
+        # Se crea el usuario en Keycloak
+        url_crear_user = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/users"
         nuevo_kc = {
             "username": usuario.nombre.replace(" ", "_").lower(),
             "email": usuario.email,
             "enabled": True,
+            "emailVerified": True,
             "credentials": [{
                 "type": "password",
-                "value": usuario.password,        # OJO: Les estamos poniendo clave '123' a todos por defecto
+                "value": usuario.password,       
                 "temporary": False
             }]
         }
-        requests.post(url_create_user, json=nuevo_kc, headers=headers)
+        respuesta_crear_user = requests.post(url_crear_user, json=nuevo_kc, headers=headers_admin)
 
-        respuesta_id = requests.get(f"{url_create_user}?email={usuario.email}", headers=headers)
-        keycloak_id = respuesta_id.json()[0]["id"]                  # Obtener el ID de Keycloak
+        # Validar que el usuario no exista ya en Keycloak
+        if respuesta_crear_user.status_code == 409:
+            raise HTTPException(status_code=400, detail="El usuario ya existe en Keycloak")
 
-        nuevo_db = models.Usuario(                          # Guardarlo en PostgreSQL
+        # Validar que la creación del usuario en Keycloak fue exitosa
+        if respuesta_crear_user.status_code != 201:
+            raise HTTPException(status_code=400, detail=f"Error al crear usuario: {respuesta_crear_user.text}")
+
+        # Obtener el ID del usuario recién creado en Keycloak para guardarlo en PostgreSQL
+        respuesta_id = requests.get(f"{url_crear_user}?email={usuario.email}", headers=headers_admin)
+        datos_usuario_kc = respuesta_id.json()   
+
+        # Validar que se haya podido recuperar el ID de Keycloak
+        if not datos_usuario_kc:
+            raise HTTPException(status_code=500, detail="No se pudo recuperar el ID de Keycloak tras la creación")
+            
+        keycloak_id = datos_usuario_kc[0]["id"]       
+
+        # Guardar el usuario en la base de datos PostgreSQL con el ID de Keycloak
+        nuevo_db = models.Usuario(          
             keycloakid=keycloak_id,
             nombre=usuario.nombre,
             email=usuario.email,
@@ -137,66 +170,89 @@ def registrar_usuario(usuario: schemas.UsuarioCrear, db: Session = Depends(get_d
         return nuevo_db
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Fallo en el sistema de registro")
+        db.rollback() 
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
 
 
 #POST /auth/login: Inicio de sesión y obtención de JWT
 
 @app.post("/auth/login")
 def login_usuario(credenciales: OAuth2PasswordRequestForm = Depends()):
-    IP_KEYCLOAK = "http://keycloak:8080"                                              # nombre contenedor Keycloak
-    REALM_NAME = "BD2_TC1"                                                            # Nombre del Realm
-    CLIENT_ID = "api_TC1BD"                                                           # Nombre del cliente en Keycloak
-    url_token = f"{IP_KEYCLOAK}/realms/{REALM_NAME}/protocol/openid-connect/token"    #URL donde se obtiene el token
-    payload = {                                                                       # Paquete de datos que Keycloak solicita
-        "client_id": CLIENT_ID,
+    # URL donde se obtiene el token
+    url_token = f"{os.getenv('IP_KEYCLOAK')}/realms/{os.getenv('REALM_NAME')}/protocol/openid-connect/token"
+    
+    # Paquete de datos que Keycloak solicita 
+    payload = {                                                                                                                              
+        "client_id": os.getenv('CLIENT_ID'),
+        "client_secret": os.getenv('CLIENT_SECRET'),
         "username": credenciales.username,
         "password": credenciales.password,
         "grant_type": "password",
         "scope": "openid"
     }
-    try:                                                                              # Hacer llamada a Keycloak
+    try:                      
+        # Se le pregunta a Keycloak por el token usando las credenciales que el usuario ingresó                                                        
         respuesta = requests.post(url_token, data=payload)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Servidor Keycloak no responde: {str(e)}")
-        
-    if respuesta.status_code == 200:                                                  # Evaluación de respuesta de Keycloak
-        return respuesta.json()
-    else:
+
+        # Evaluación de respuesta de Keycloak
+        if respuesta.status_code == 200:                                                  
+            return respuesta.json()
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-
-
+        
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="No se pudo conectar con el servidor de identidad (Keycloak)")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        
 #____________________________________________________________________________________________
 # Usuario
 
 #GET /users/me: Obtiene los detalles del usuario autenticado
 
-@app.get("/users/me", response_model=schemas.UsuarioRespuesta)
+@app.get("/users/me", response_model=schemas.UsuarioRespuesta, dependencies=[Depends(oauth2_scheme)])
 def obtener_usuario(request: Request, db: Session = Depends(get_db)):
-    keycloak_id = request.state.user_data["sub"]                   # Se saca el ID (código grande) de Keycloak (el sub)
-                                                                   # que el middleware ya validó y guardó
+    
+    try:
+        # Se saca el ID de Keycloak que el middleware guardó
+        keycloak_id = request.state.user_data["sub"]                                                                          
+        
+        # Se busca el usuario en la base de datos
+        usuario = db.query(models.Usuario).filter(models.Usuario.keycloakid == keycloak_id).first()
 
-    usuario = db.query(models.Usuario).filter(models.Usuario.keycloakid == keycloak_id).first()
-    if not usuario:                                                                 # Valida que exista
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return usuario
+        # Validación de que el usuario exista
+        if not usuario:                                                                 
+            raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos local")
+        return usuario
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno al buscar el usuario: {str(e)}")
 
 
 #PUT /users/{id}: Actualiza un usuario existente
 
-@app.put("/users/{id}", response_model=schemas.UsuarioRespuesta)
-def actualizar_usuario(id: int, usuario_actualizado: schemas.UsuarioActualizar, db: Session = Depends(get_db)):
-    usuario_db = db.query(models.Usuario).filter(models.Usuario.id == id).first()
-    if not usuario_db:                                                     # Valida que exista
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+@app.put("/users/{id}", response_model=schemas.UsuarioRespuesta, dependencies=[Depends(oauth2_scheme)])
+def actualizar_usuario(usuario_id: int, datos_nuevos: schemas.UsuarioActualizar, request: Request, db: Session = Depends(get_db)):
+    try:
     
-    usuario_db.nombre = usuario_actualizado.nombre
-    usuario_db.email = usuario_actualizado.email
-    usuario_db.rol = usuario_actualizado.rol
+        # Buscar el usuario en la base de datos 
+        usuario_db = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+        if not usuario_db:                                                     # Valida que exista
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        # Reemplazar los datos viejos con los nuevos
+        usuario_db.nombre = datos_nuevos.nombre
+        usuario_db.email = datos_nuevos.email
+        usuario_db.rol = datos_nuevos.rol
 
-    db.commit()
-    db.refresh(usuario_db)
-    return usuario_db
+        db.commit()
+        db.refresh(usuario_db)
+        return usuario_db
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar: {str(e)}")
+
 
 
 # DELETE /users/{id}: Elimina un usuario existente

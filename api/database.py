@@ -3,7 +3,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
 #Lee la URL de la base de datos que se configuró en el docker-compose.yml
-URL_BASE_DATOS = os.getenv("DATABASE_URL", "postgresql://UserTC1:BaseDeDatosTC1@PostgreSQL:5432/TC_1")
+URL_BASE_DATOS = os.getenv("DATABASE_URL")
 
 #Crea el motor que hace la conexión física con PostgreSQL
 engine = create_engine(URL_BASE_DATOS)
