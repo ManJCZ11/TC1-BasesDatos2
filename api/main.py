@@ -7,6 +7,7 @@ import requests
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import os
 from dotenv import load_dotenv # <--- 1. Importar esto
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -15,6 +16,13 @@ models.Base.metadata.create_all(bind=engine)
 
 # Se inicia la API
 app = FastAPI(title="API de Reservas")                          
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # permite frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Ruta de inicio
 @app.get("/")                                                   
