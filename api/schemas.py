@@ -27,9 +27,9 @@ class UsuarioActualizar(BaseModel):
 class UsuarioRespuesta(BaseModel):      # Lo que la API responde (incluye el ID que generó la base de datos)
     id: int
     keycloakid: str
-    nombre: str
-    email: str
-    rol: str
+    nombre: Optional[str] = None
+    email: Optional[str] = None
+    rol: Optional[str] = None
 
     class Config:
         from_attributes = True  # Le dice a Pydantic que traduzca desde la base de datos

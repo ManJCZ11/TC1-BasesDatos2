@@ -1,24 +1,29 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 
-export default function Restaurants() {
-  const [data, setData] = useState([]);
+export default function Profile() {
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    api.get("/restaurants")
-      .then(res => setData(res.data));
+    api.get("/users/me")
+      .then(res => {
+        console.log("USER:", res.data);
+        setUser(res.data);
+      })
+      .catch(err => {
+        console.error("ERROR:", err.response?.data);
+      });
   }, []);
+
+  if (!user) return <p>Cargando perfil...</p>;
 
   return (
     <div>
-      <h2>Restaurantes</h2>
+      <h2>Mi Perfil</h2>
 
-      {data.map((r) => (
-        <div key={r.id}>
-          <h3>{r.name}</h3>
-          <p>{r.description}</p>
-        </div>
-      ))}
+      <p><strong>Nombre:</strong> {user.nombre}</p>
+      <p><strong>Email:</strong> {user.email}</p>
+      <p><strong>Rol:</strong> {user.rol}</p>
     </div>
   );
 }

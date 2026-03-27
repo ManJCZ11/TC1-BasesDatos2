@@ -18,7 +18,9 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="API de Reservas")                          
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # permite frontend
+    allow_origins=[
+    "http://localhost:5173", #Frontend vite
+    ],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +38,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 # Middleware de seguridad: Se ejecuta antes de cada ruta para verificar el token y permisos
 @app.middleware("http")
 async def middleware_seguridad(request: Request, call_next):
+
+    # ✅ PERMITIR PREFLIGHT (CRÍTICO)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     path = request.url.path
     method = request.method
     
@@ -66,6 +73,7 @@ async def middleware_seguridad(request: Request, call_next):
         # Si el token es válido, se obtiene la información del usuario para verificar permisos
         datos_usuario = respuesta.json()
         roles = datos_usuario.get("realm_access", {}).get("roles", [])
+        print ("datos_usuario: ", datos_usuario)
         print ("rol: ", roles)
 
         # Si alguien quiere ver su propio perfil, se deja pasar
@@ -255,9 +263,13 @@ def obtener_usuario_logueado(request: Request, db: Session = Depends(get_db)):
         # Se saca el ID de Keycloak que el middleware guardó
         keycloak_id = request.state.user_data["sub"]                                                                          
         
+        print(f"Keycloak ID from token: {keycloak_id}")
+        
         # Se busca el usuario en la base de datos
         usuario = db.query(models.Usuario).filter(models.Usuario.keycloakid == keycloak_id).first()
 
+        print(f"Usuario encontrado: {usuario}")
+        
         # Validación de que el usuario exista
         if not usuario:                                                                 
             raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos")
