@@ -58,6 +58,7 @@ async def middleware_seguridad(request: Request, call_next):
         # Si el token es válido, se obtiene la información del usuario para verificar permisos
         datos_usuario = respuesta.json()
         roles = datos_usuario.get("realm_access", {}).get("roles", [])
+        print ("rol: ", roles)
 
         # Si alguien quiere ver su propio perfil, se deja pasar
         if path == "/users/me" and method == "GET":
@@ -75,7 +76,7 @@ async def middleware_seguridad(request: Request, call_next):
         rutas_admin = (
             (method == "POST" and (path.startswith("/restaurants") or path.startswith("/menus"))) or
             (method in ["PUT", "DELETE"] and (path.startswith("/users") or path.startswith("/menus"))) or
-            (method == "GET" and path == "/users")
+            (method == "GET" and path.startswith("/users"))
         )
 
         if rutas_admin:
@@ -126,13 +127,15 @@ def registrar_usuario(usuario: schemas.UsuarioCrear, db: Session = Depends(get_d
         # Se crea el usuario en Keycloak
         url_crear_user = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/users"
         nuevo_kc = {
-            "username": usuario.nombre.replace(" ", "_").lower(),
+            "username": usuario.email,
+            "firstName": usuario.nombre,
+            "lastName": usuario.apellido,
             "email": usuario.email,
             "enabled": True,
             "emailVerified": True,
             "credentials": [{
                 "type": "password",
-                "value": usuario.password,       
+                "value": usuario.password,     
                 "temporary": False
             }]
         }
@@ -156,10 +159,35 @@ def registrar_usuario(usuario: schemas.UsuarioCrear, db: Session = Depends(get_d
             
         keycloak_id = datos_usuario_kc[0]["id"]       
 
+        # Obtener el ID del rol que se quiere asignar al usuario recién creado
+        url_obtener_rol = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/roles/{usuario.rol}"
+        respuesta_rol = requests.get(url_obtener_rol, headers=headers_admin)
+
+        if respuesta_rol.status_code == 200:
+            datos_rol = respuesta_rol.json()
+            
+            # Asignar el rol al usuario usando el ID del usuario y el ID del rol
+            url_asignar_rol = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/users/{keycloak_id}/role-mappings/realm"
+            
+            # Keycloak exige que se le envíe como una lista de diccionarios
+            payload_rol = [{
+                "id": datos_rol["id"],
+                "name": datos_rol["name"]
+            }]
+            
+            respuesta_asignar = requests.post(url_asignar_rol, json=payload_rol, headers=headers_admin)
+            
+            if respuesta_asignar.status_code not in [200, 204]:
+                raise HTTPException(status_code=500, detail="Usuario creado, pero falló la asignación del rol en Keycloak")
+        else:
+            raise HTTPException(status_code=400, detail=f"El rol '{usuario.rol}' no existe en Keycloak.")
+
+        nombre_completo = f"{usuario.nombre} {usuario.apellido}"
+
         # Guardar el usuario en la base de datos PostgreSQL con el ID de Keycloak
         nuevo_db = models.Usuario(          
             keycloakid=keycloak_id,
-            nombre=usuario.nombre,
+            nombre=nombre_completo,
             email=usuario.email,
             rol=usuario.rol
         )
@@ -205,13 +233,15 @@ def login_usuario(credenciales: OAuth2PasswordRequestForm = Depends()):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
         
+
+
 #____________________________________________________________________________________________
 # Usuario
 
 #GET /users/me: Obtiene los detalles del usuario autenticado
 
 @app.get("/users/me", response_model=schemas.UsuarioRespuesta, dependencies=[Depends(oauth2_scheme)])
-def obtener_usuario(request: Request, db: Session = Depends(get_db)):
+def obtener_usuario_logueado(request: Request, db: Session = Depends(get_db)):
     
     try:
         # Se saca el ID de Keycloak que el middleware guardó
@@ -222,28 +252,71 @@ def obtener_usuario(request: Request, db: Session = Depends(get_db)):
 
         # Validación de que el usuario exista
         if not usuario:                                                                 
-            raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos local")
+            raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos")
         return usuario
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno al buscar el usuario: {str(e)}")
 
 
+
+#GET /users/{id}: Obtiene los detalles de un usuario existente (solo para Admin)
+
+@app.get("/users/{id}", response_model=schemas.UsuarioRespuesta, dependencies=[Depends(oauth2_scheme)])
+def obtener_usuario(id: int, request: Request, db: Session = Depends(get_db)):
+    
+    try:
+        # Se busca el usuario en la base de datos usando el ID
+        usuario = db.query(models.Usuario).filter(models.Usuario.id == id).first()
+
+        if not usuario:                                                     
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return usuario
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno al buscar el usuario: {str(e)}")
+
+
+
 #PUT /users/{id}: Actualiza un usuario existente
 
 @app.put("/users/{id}", response_model=schemas.UsuarioRespuesta, dependencies=[Depends(oauth2_scheme)])
-def actualizar_usuario(usuario_id: int, datos_nuevos: schemas.UsuarioActualizar, request: Request, db: Session = Depends(get_db)):
+def actualizar_usuario(id: int, datos_nuevos: schemas.UsuarioActualizar, request: Request, db: Session = Depends(get_db)):
     try:
     
         # Buscar el usuario en la base de datos 
-        usuario_db = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+        usuario_db = db.query(models.Usuario).filter(models.Usuario.id == id).first()
         if not usuario_db:                                                     # Valida que exista
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Se ingresa a Keycloak poniendo el username y password
+        respuesta_token = requests.post(f"{os.getenv('IP_KEYCLOAK')}/realms/master/protocol/openid-connect/token", 
+        data={
+            "client_id": "admin-cli", # Cliente predefinido en Keycloak que tiene permisos de administración
+            "username": os.getenv('KEYCLOAK_ADMIN'), 
+            "password": os.getenv('KEYCLOAK_ADMIN_PASSWORD'), 
+            "grant_type": "password"
+        })
+
+        if respuesta_token.status_code != 200:
+            raise HTTPException(status_code=500, detail="No se pudo obtener acceso administrativo de Keycloak")
+
+        # Si la autenticación es exitosa, se obtiene el token de acceso para usarlo en las siguientes solicitudes a Keycloak
+        token_admin = respuesta_token.json()["access_token"] # 
+        # Se prepara el header con el token para autorizar las solicitudes de administración a Keycloak
+        headers_admin = {"Authorization": f"Bearer {token_admin}", "Content-Type": "application/json"}
         
-        # Reemplazar los datos viejos con los nuevos
-        usuario_db.nombre = datos_nuevos.nombre
-        usuario_db.email = datos_nuevos.email
-        usuario_db.rol = datos_nuevos.rol
+        url_kc_usuario = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/users/{usuario_db.keycloakid}"
+        update_kc = {
+            "firstName": datos_nuevos.nombre,
+            "lastName": datos_nuevos.apellido
+        }
+        requests.put(url_kc_usuario, json=update_kc, headers=headers_admin)
+
+        nombre_completo = f"{datos_nuevos.nombre} {datos_nuevos.apellido}"
+
+        # Actualizar en la base de datos
+        usuario_db.nombre = nombre_completo
 
         db.commit()
         db.refresh(usuario_db)
@@ -257,14 +330,48 @@ def actualizar_usuario(usuario_id: int, datos_nuevos: schemas.UsuarioActualizar,
 
 # DELETE /users/{id}: Elimina un usuario existente
 
-@app.delete("/users/{id}")
-def eliminar_usuario(id: int, db: Session = Depends(get_db)):
+@app.delete("/users/{id}", dependencies=[Depends(oauth2_scheme)])
+def eliminar_usuario(id: int, request: Request, db: Session = Depends(get_db)):
+    
+    # Buscar el usuario en la Base de Datos
     usuario_db = db.query(models.Usuario).filter(models.Usuario.id == id).first()
-    if not usuario_db:                                                             # Valida que exista
+    
+    if not usuario_db:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    db.delete(usuario_db)
-    db.commit()
-    return {"mensaje": "Usuario eliminado exitosamente"}
+
+    try:
+        #   Obtiene el token de administrador para hacer las solicitudes a Keycloak
+        respuesta_token = requests.post(f"{os.getenv('IP_KEYCLOAK')}/realms/master/protocol/openid-connect/token", 
+        data={
+            "client_id": "admin-cli",
+            "username": os.getenv('KEYCLOAK_ADMIN'), 
+            "password": os.getenv('KEYCLOAK_ADMIN_PASSWORD'), 
+            "grant_type": "password"
+        })
+
+        if respuesta_token.status_code != 200:
+            raise HTTPException(status_code=500, detail="Error de autenticación administrativa en Keycloak")
+
+        token_admin = respuesta_token.json()["access_token"]
+        headers_admin = {"Authorization": f"Bearer {token_admin}"}
+
+        # Eliminar el usuario en Keycloak usando su ID
+        url_eliminar_kc = f"{os.getenv('IP_KEYCLOAK')}/admin/realms/{os.getenv('REALM_NAME')}/users/{usuario_db.keycloakid}"
+        respuesta_kc = requests.delete(url_eliminar_kc, headers=headers_admin)
+
+        if respuesta_kc.status_code not in [204, 404]:
+            raise HTTPException(status_code=500, detail="No se pudo eliminar el usuario en Keycloak")
+
+        # Elimina el usuario en la base de datos
+        db.delete(usuario_db)
+        db.commit()
+
+        return {"mensaje": "Usuario eliminado exitosamente de ambos sistemas"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno al eliminar: {str(e)}")
+
 
 
 #____________________________________________________________________________________________

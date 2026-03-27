@@ -13,6 +13,7 @@ class UsuarioLogin(BaseModel):          # Keycloak
 
 class UsuarioCrear(BaseModel):          # Lo que se pide cuando alguien se registra
     nombre: str
+    apellido: str
     email: EmailStr
     rol: str
     password: str
@@ -20,8 +21,7 @@ class UsuarioCrear(BaseModel):          # Lo que se pide cuando alguien se regis
 
 class UsuarioActualizar(BaseModel):
     nombre: Optional[str] = None
-    email: Optional[EmailStr] = None
-    rol: Optional[str] = None
+    apellido: Optional[str] = None
 
 
 class UsuarioRespuesta(BaseModel):      # Lo que la API responde (incluye el ID que generó la base de datos)
